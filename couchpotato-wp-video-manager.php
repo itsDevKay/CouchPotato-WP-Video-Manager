@@ -1,6 +1,6 @@
 <?php
 /*
-Plugin Name: CouchPotato WP Video Management
+Plugin Name: CouchPotato WP Video Manager
 Plugin URI: https://github.com/itsdevkay
 Description: Content Management System for storing videos for movies and TV shows inside of your WordPress database. Also includes a custom api under /wp-json/cpvm/ to allow for 3rd party app usage in the case you wanted to create an app with WordPress as your CMS.
 Version: 1.0
