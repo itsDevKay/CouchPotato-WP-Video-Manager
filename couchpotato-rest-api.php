@@ -12,10 +12,10 @@ function cpvm_register_routes() {
     /* Collects all video post_types with no filters
      * aside from category, (ex. ../movies/all, ../series/all).
      */
-    register_rest_route('cpvm', 'videos/movies/all', array(
-        'methods'   => WP_REST_Server::READABLE,
-        'callback'  => 'cpvm_collect_all_movies',
-    ));
+    // register_rest_route('cpvm', 'videos/movies/all', array(
+    //     'methods'   => WP_REST_Server::READABLE,
+    //     'callback'  => 'cpvm_collect_all_movies',
+    // ));
     register_rest_route('cpvm', 'videos/series/all', array(
         'methods'   => WP_REST_Server::READABLE,
         'callback'  => 'cpvm_collect_all_series',
@@ -44,28 +44,34 @@ function cpvm_register_routes() {
         'methods'   => WP_REST_Server::READABLE,
         'callback'  => 'cpvm_collect_shorts_by_genre',
     ));
+
+    register_rest_route('cpvm', 'videos/search/all/q=(?P<q>[a-zA-Z0-9-]+)', array(
+        'methods'   => WP_REST_Server::READABLE,
+        'callback'  => 'cpvm_search_videos',
+    ));
+
 }
 
-function cpvm_collect_videos_by_alphabet($data) {
-}
-function cpvm_collect_movies_by_alphabet($data) {
-}
-function cpvm_collect_series_by_alphabet($data) {
-}
-function cpvm_collect_shorts_by_alphabet($data) {
-}
+// function cpvm_collect_videos_by_alphabet($data) {
+// }
+// function cpvm_collect_movies_by_alphabet($data) {
+// }
+// function cpvm_collect_series_by_alphabet($data) {
+// }
+// function cpvm_collect_shorts_by_alphabet($data) {
+// }
 
-function cpvm_search_videos($data) {
-}
-function cpvm_search_movies($data) {
-}
-function cpvm_search_series($data) {
-}
-function cpvm_search_shorts($data) {
-}
+// function cpvm_search_videos($data) {
+// }
+// function cpvm_search_movies($data) {
+// }
+// function cpvm_search_series($data) {
+// }
+// function cpvm_search_shorts($data) {
+// }
 
-function cpvm_generate_roku_json() {
-}
+// function cpvm_generate_roku_json() {
+// }
 
 /* Gathers all custom post types that are 
  * movies, series, shorts, etc. and filters them
@@ -246,13 +252,11 @@ function cpvm_collect_all_shorts() {
 
 /* Gathers all custom post types of videos */
 function cpvm_collect_all_videos() {
-    $args = array(
-        'numberposts'      => -1,
-        'orderby'          => 'date',
-        'order'            => 'DESC',
-        'post_type'        => 'videos',
-    );
-    $response = cpvm_organize_videos($args);
+    global $wpdb;
+    $prefix = $wpdb->get_blog_prefix();
+    $query = "SELECT * FROM " . $prefix . "cpvm_entities";
+    $response = $wpdb->get_results($query);
+
     return rest_ensure_response($response);
 }
 
