@@ -1,16 +1,42 @@
 <?php
 /*
-Plugin Name: CouchPotato WP Video Manager
+Plugin Name: CouchPotato WP Video Management
 Plugin URI: https://github.com/itsdevkay
 Description: Content Management System for storing videos for movies and TV shows inside of your WordPress database. Also includes a custom api under /wp-json/cpvm/ to allow for 3rd party app usage in the case you wanted to create an app with WordPress as your CMS.
 Version: 1.0
-Author: itsDevKay
+Author: Keanu Aaron
 Author URI: http://virbuntu.com
 License: GPLv2
 */
 
 // Include custom api endpoints
 include 'couchpotato-rest-api.php';
+
+function cpvm_create_database_tables() {
+    global $wpdb;
+    $prefix = $wpdb->get_blog_prefix(); // . 'cpvm_entities';
+    //$e_relationships = $wpdb->get_blog_prefix() . 'cpvm_entity_relationships';
+
+    $entities = "CREATE TABLE IF NOT EXISTS " . $prefix . "cpvm_entities (
+        `entity_id` int(20) unsigned NOT NULL AUTO_INCREMENT,
+        `title` varchar(80) NOT NULL,
+        `thumbnail` text NOT NULL,
+        PRIMARY KEY (entity_id)
+        );";
+
+    $entity_relationships = "CREATE TABLE IF NOT EXISTS " . $prefix . "cpvm_entities_relationships (
+        `id` int(20) unsigned NOT NULL AUTO_INCREMENT,
+        `video_id` int(20) NOT NULL,
+        `entity_id` int(20) NOT NULL,
+        PRIMARY KEY (id)
+        );";
+
+    // require_once( ABSPATH . 'wp-admin/includes/upgrade.php' );
+    $wpdb->query( $entities );
+    $wpdb->query( $entity_relationships );
+    file_put_contents( __DIR__ . '/my_log.txt', ob_get_contents() );
+}
+register_activation_hook( __FILE__, 'cpvm_create_database_tables' );
 
 // Custom genre taxonomy rules
 function cpvm_register_genres_taxonomy() {
@@ -134,7 +160,7 @@ function cpvm_register_post_type() {
             'has_archive'        => true,
             'menu_position'      => 20,
             'show_in_rest'       => true,
-            'supports'           => array( 'title', 'editor', 'comments', 'thumbnail', 'custom-fields' ),
+            'supports'           => array( 'title'/*, 'comments'*/, 'thumbnail' ),
             'taxonomies'         => array('video_genres', 'video_series', 'video_category'),  
             'rewrite'            => array( 'slug' => 'video' ),   
             'menu_icon'          => plugins_url('videos20x20.png', __FILE__),   
@@ -149,6 +175,7 @@ function cpvm_create_custom_types() {
     cpvm_register_category_taxonomy();
     cpvm_register_post_type();
 
+    sidebar_plugin_register();
     // global $wp_rewrite;
     // $wp_rewrite->flush_rules();
 }
@@ -192,7 +219,7 @@ function cpvm_display_video_details_meta_box($video) {
     $video_type     = esc_html(get_post_meta($video->ID, 'video_type', true));
 
     ?>
-    <table>
+    <table> 
         <tr>
             <td style="width:100%;">Video Url</td>
             <td>
@@ -304,6 +331,96 @@ function cpvm_save_video_meta_data($video_id, $video) {
                 intval($_POST['cpvm_episode_number'])
             );
         }
+
+        // saving series term_id and term_name to meta data for future reference
+        $series_tax = wp_get_post_terms($video_id, 'video_series');
+        if ($series_tax) { // shows
+            // update_post_meta($video_id, 'video_series_term_id', intval($series_tax[0]->term_id));
+            // update_post_meta($video_id, 'video_series_term_name', sanitize_text_field($series_tax[0]->name));
+
+            // send video_term_name to entity title in entities table with this video_id as video_id
+            $entity_id;
+            $entity_title = $series_tax[0]->name;
+            
+            $thumbnail_id = get_post_meta($video_id, '_thumbnail_id');
+            $thumbnail_post = get_post(intval($thumbnail_id[0]));
+            $thumbnail_url = $thumbnail_post->guid;
+            // echo json_encode($thumbnail_url) . PHP_EOL;
+
+            // Check if an entity_title = $entity_title exists in $prefix . 'cpvm_entities'
+            global $wpdb;
+            $prefix = $wpdb->get_blog_prefix();
+
+            $entity_exists = "SELECT * FROM " . $prefix . "cpvm_entities WHERE title = '$entity_title'";
+            
+            // if not then insert into $prefix . 'cpvm_entities'
+            // echo gettype($entity_exists);
+            // echo $entity_exists;
+            $query = $wpdb->query($entity_exists);
+            if (!$query) {
+                $data = array('title' => $entity_title, 'thumbnail' => $thumbnail_url);
+                $format = array('%s','%s');
+                $wpdb->insert($prefix . 'cpvm_entities', $data, $format);
+                $entity_id = $wpdb->insert_id;
+                // echo $entity_id . ' : ENTITY ID';
+            } else {
+                $results = $wpdb->get_results($entity_exists);
+                $entity_id = $results[0]->entity_id;
+            }
+
+            // create the relationship in $prefix . 'cpvm_entity_relationships'
+            $relation_exists = "SELECT * FROM " . $prefix . "cpvm_entities_relationships 
+                WHERE entity_id = " . $entity_id . "
+                AND video_id = " . $video_id;
+
+            if (!$wpdb->query($relation_exists)) {
+                $data = array('entity_id' => $entity_id, 'video_id' => $video_id);
+                $format = array('%d','%d');
+                $wpdb->insert($prefix . 'cpvm_entities_relationships', $data, $format);
+            } else {
+                ;
+            }
+ 
+        } else { // movies
+            $entity_title = $video->post_title;
+            $thumbnail_id = get_post_meta($video_id, '_thumbnail_id');
+            $thumbnail_post = get_post(intval($thumbnail_id[0]));
+            $thumbnail_url = $thumbnail_post->guid;
+            
+            global $wpdb;
+            $prefix = $wpdb->get_blog_prefix();
+
+            $entity_exists = "SELECT * FROM " . $prefix . "cpvm_entities WHERE title = '$entity_title'";
+            
+            // if not then insert into $prefix . 'cpvm_entities'
+            // echo gettype($entity_exists);
+            // echo $entity_exists;
+            $query = $wpdb->query($entity_exists);
+            if (!$query) {
+                $data = array('title' => $entity_title, 'thumbnail' => $thumbnail_url);
+                $format = array('%s','%s');
+                $wpdb->insert($prefix . 'cpvm_entities', $data, $format);
+                $entity_id = $wpdb->insert_id;
+                // echo $entity_id . ' : ENTITY ID';
+            } else {
+                $results = $wpdb->get_results($entity_exists);
+                $entity_id = $results[0]->entity_id;
+            }
+
+            // create the relationship in $prefix . 'cpvm_entity_relationships'
+            $relation_exists = "SELECT * FROM " . $prefix . "cpvm_entities_relationships 
+                WHERE entity_id = " . $entity_id . "
+                AND video_id = " . $video_id;
+
+            if (!$wpdb->query($relation_exists)) {
+                $data = array('entity_id' => $entity_id, 'video_id' => $video_id);
+                $format = array('%d','%d');
+                $wpdb->insert($prefix . 'cpvm_entities_relationships', $data, $format);
+            } else {
+                ;
+            }
+        }
+        //file_put_contents( __DIR__ . '/my_log.txt', ob_get_contents() );
     }
 }
 add_action('save_post', 'cpvm_save_video_meta_data', 10, 2);
