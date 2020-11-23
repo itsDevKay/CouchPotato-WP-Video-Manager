@@ -48,7 +48,7 @@ function cpvm_create_database_tables() {
     // require_once( ABSPATH . 'wp-admin/includes/upgrade.php' );
     $wpdb->query( $entities );
     $wpdb->query( $videos_table );
-    file_put_contents( __DIR__ . '/my_log.txt', ob_get_contents() );
+    file_put_contents( __DIR__ . '/my_loggg.txt', ob_get_contents() );
 }
 register_activation_hook( __FILE__, 'cpvm_create_database_tables' );
 
@@ -206,27 +206,18 @@ function cpvm_admin_init() {
 
 // Display Settings for the Video's meta_box in Admin menu
 function cpvm_display_video_details_meta_box($video) {
-    /*
-     * Metadata needed:
-     * + cpvm_release_date (Y-m-d)      √
-     * + cpvm_episode_number (int)      √
-     * + cpvm_season_number (int)       √
-     * + cpvm_duration (int)            √
-     * + cpvm_ad_break_one (h:m:s)      Automate this based on duration and translate to (h:m:s)
-     * + cpvm_ad_break_two (h:m:s)      Automate this based on duration and translate to (h:m:s)
-     * + cpvm_ad_break_three (h:m:s)    Automate this based on duration and translate to (h:m:s)
-     * + cpvm_video_url (str)           √
-     * + cpvm_quality (str)             √
-     * + cpvm_video_type (str)          √
-     */
+    global $wpdb;
+    $prefix = $wpdb->get_blog_prefix();
+    $results = $wpdb->get_results(
+        $wpdb->prepare("SELECT * FROM {$wpdb->prefix}cpvm_videos WHERE post_id=%d", $video->ID)
+    );
+    echo json_encode($results);
+
     $description    = strip_tags(esc_html(get_post_meta($video->ID, 'video_description', true)));
     $release_date   = esc_html(get_post_meta($video->ID, 'video_release_date', true));
     $episode_number = intval(get_post_meta($video->ID, 'video_episode_number', true));
     $season_number  = intval(get_post_meta($video->ID, 'video_season_number', true));
     $duration       = intval(get_post_meta($video->ID, 'video_duration', true));
-    // $ad_break_one   = esc_html(get_post_meta($video->ID, 'cpvm_ad_break_one', true));
-    // $ad_break_two   = esc_html(get_post_meta($video->ID, 'cpvm_ad_break_two', true));
-    // $ad_break_three = esc_html(get_post_meta($video->ID, 'cpvm_ad_break_three', true));
     $video_url      = esc_html(get_post_meta($video->ID, 'video_url', true));
     $quality        = esc_html(get_post_meta($video->ID, 'video_quality', true));
     $video_type     = esc_html(get_post_meta($video->ID, 'video_type', true));
@@ -333,17 +324,21 @@ function cpvm_save_video_meta_data($video_id, $video) {
         $thumbnail_url = cpvm_get_video_thumbnail($video_id);
         
         // echo $description[0] . '::::::::LOG:::::::::';
+
+        /* This is the meta data I want to look out for with this video post_type. 
+         */
         $url_args = array(
             'cpvm_video_url',
             'cpvm_video_quality',
             'cpvm_video_type',
-            'cpvm_video_duration',
+            // 'cpvm_video_duration',
             'cpvm_release_date',
             'cpvm_season_number',
             'cpvm_episode_number',
             'cpvm_video_description'
         );
 
+        // This loop takes every value in the url_args array and sends it to get updated in another method.
         foreach ($url_args as $meta_key) {
             if (isset($_POST[$meta_key])) {
                 $meta_value = cpvm_handle_video_text_fields($meta_key);
@@ -354,8 +349,11 @@ function cpvm_save_video_meta_data($video_id, $video) {
         if ($series_tax) { // shows
             // if shows use taxonomy description
             $terms = get_the_terms($video_id, 'video_series');
-            echo json_encode($terms);
+            // echo json_encode($terms);
             $description = $terms[0]->description;
+            $video_description = get_post_meta($video_id, 'cpvm_video_description');
+            $video_description = $video_description[0];
+            echo "VIDEO_DESCRIPTION:::::::" . $video_description;
 
             // send video_term_name to entity title in entities table with this video_id as video_id
             $entity_id;
@@ -365,7 +363,26 @@ function cpvm_save_video_meta_data($video_id, $video) {
             $entity_exists = "SELECT * FROM " . $prefix . "cpvm_entities WHERE title = '$entity_title'";
             
             // if not then insert into $prefix . 'cpvm_entities'
-            cpvm_table_manager($entity_exists, $description, $entity_title, $thumbnail_url);
+            $entity_id = cpvm_table_manager($entity_exists, $description, $entity_title, $thumbnail_url);
+
+            $video_data = array(
+                'post_id' => $video_id,
+                'title' => $video->post_title,
+                'thumbnail' => cpvm_get_video_thumbnail($video_id),
+                'description' => $video_description,
+                'season' => get_post_meta($video_id, 'cpvm_season_number'),
+                'episode' => get_post_meta($video_id, 'cpvm_episode_number'),
+                'video_src' => get_post_meta($video_id, 'cpvm_video_url'),
+                'release_date' => get_post_meta($video_id, 'cpvm_release_date'),
+                'video_type' => get_post_meta($video_id, 'cpvm_video_type'),
+                'quality' => get_post_meta($video_id, 'cpvm_video_quality'),
+            );
+
+
+            $video_data['is_movie'] = 0;
+            $video_data['entity_id'] = $entity_id;
+            $cpvm_video_id = cpvm_insert_postdata_into_videos($video_data);
+
  
         } else { // movies
             $entity_title   = $video->post_title;
@@ -375,9 +392,25 @@ function cpvm_save_video_meta_data($video_id, $video) {
             $entity_exists  = "SELECT * FROM " . $prefix . "cpvm_entities WHERE title = '$entity_title'";
             
             // if not then insert into $prefix . 'cpvm_entities'
-            cpvm_table_manager($entity_exists, $description, $entity_title, $thumbnail_url);
+            $entity_id = cpvm_table_manager($entity_exists, $description, $entity_title, $thumbnail_url);
+            
+            $video_data = array(
+                'post_id' => $video_id,
+                'title' => $video->post_title,
+                'thumbnail' => cpvm_get_video_thumbnail($video_id),
+                'description' => $description,
+                'season' => get_post_meta($video_id, 'cpvm_season_number'),
+                'episode' => get_post_meta($video_id, 'cpvm_episode_number'),
+                'video_src' => get_post_meta($video_id, 'cpvm_video_url'),
+                'release_date' => get_post_meta($video_id, 'cpvm_release_date'),
+                'video_type' => get_post_meta($video_id, 'cpvm_video_type'),
+                'quality' => get_post_meta($video_id, 'cpvm_video_quality'),
+            );
+            $video_data['entity_id'] = $entity_id;
+            $video_data['is_movie'] = 1;
+            $cpvm_video_id = cpvm_insert_postdata_into_videos($video_data);
         }
-        file_put_contents( __DIR__ . '/my_log.txt', ob_get_contents() );
+        file_put_contents( __DIR__ . '/my_loggg.txt', ob_get_contents() );
     }
 }
 
@@ -386,18 +419,57 @@ function cpvm_get_video_thumbnail($video_id) {
     try {
         $thumbnail_id = get_post_meta($video_id, '_thumbnail_id');
         $thumbnail_id = (isset($thumbnail_id))? $thumbnail_id : null;
-        $thumbnail_id =  json_encode($thumbnail_id);
-        $thumbnail_post = (!$thumbnail_id)? get_post(intval($thumbnail_id[0])) : null;
-        $thumbnail_url = (isset($thumbnail_post))? $thumbnail_post->guid : '';
-        // echo json_encode($thumbnail_url) .'LOG' . PHP_EOL;
-        return $thumbnail_url;
+        // $thumbnail_id =  json_encode($thumbnail_id);
+        echo "THUMBNAIL_ID:::::" . $thumbnail_id[0] . PHP_EOL;
+
+        // get thumbnail guid
+        $thumbnail_guid = get_post(intval($thumbnail_id[0]));
+        echo json_encode($thumbnail_guid);
+        $thumbnail_guid = ($thumbnail_guid)? $thumbnail_guid->guid : '';
+        echo json_encode($thumbnail_guid) .'LOG-thumbnail-url' . PHP_EOL;
+        return $thumbnail_guid;
     } catch (exception $e) {
         echo 'ERROR: ' . $e;
         return false;
     }
 }
 
+// We are going to need to check if an entry with a $post_id, $entity_id, and $post_title exist.
+// We will return a Boolean of true or false.
+function cpvm_is_video_entry_present($post_id, $entity_id, $post_title) {
+	// First we need to access the global $wpdb class and access the DB prefix.
+	global $wpdb;
+	$prefix = $wpdb->get_blog_prefix();
 
+	// We need to get results and determine if any entities exis using these arguments.
+	$results = $wpdb->get_row(
+		$wpdb->prepare("
+			SELECT * FROM {$wpdb->prefix}cpvm_videos
+			WHERE post_id=%d
+			AND entity_id=%d
+            ", 
+            $post_id,
+            $entity_id,
+        )
+	);
+	
+	// Now we need to determine if it's empty. If empty, return true, else, false.
+	// The idea here is so we can access the id of the video entry we want to update
+	// in the case that the video entry already exists.
+	if (empty($results)) {
+		// The idea here is so we can access the id of the video entry we want to update
+        // in the case that the video entry already exists.
+        echo "RESULTS::::::" . json_encode($results);
+		return [false, intval($results->id)];
+	} else {
+        echo "RESULTS NOT EMPTY::::::" . json_encode($results->id);
+		return [true, intval($results->id)];
+	}
+}
+
+
+/* This method takes values that it will be inserting into the database using the global $wpdb variable.
+ */
 function cpvm_table_manager($entity_exists, $description, $entity_title, $thumbnail_url) {
     global $wpdb;
     $prefix = $wpdb->get_blog_prefix();
@@ -414,12 +486,66 @@ function cpvm_table_manager($entity_exists, $description, $entity_title, $thumbn
             $wpdb->insert($prefix . 'cpvm_entities', $data, $format);
             $entity_id = $wpdb->insert_id;
             // echo $entity_id . ' : ENTITY ID';
+
+            return $entity_id;
         } else {
             $results = $wpdb->get_results($entity_exists);
             $entity_id = $results[0]->entity_id;
+            return $entity_id;
         }
+}
 
-        // Insert required video data inside of the $prefix . cpvm_videos table.
+/* I want to create a new function similiar to the one above that will insert
+ * all my needed data into my custom videos table.
+ */
+function  cpvm_insert_postdata_into_videos($data) {
+	global  $wpdb;
+	$prefix = $wpdb->get_blog_prefix();
+	// echo json_encode($data) . PHP_EOL;
+	
+	// So right here in this area, we need to add our call to the function we just created.
+	// Depending on whether we get a true or false we will handle that in an if statement.
+	$does_video_exist = cpvm_is_video_entry_present($data['post_id'], $data['entity_id'], $data['title']);
+	$does_video_exist = $does_video_exist[0];
+	$video_entry_id = $does_video_exist[1];
+	
+	$table_data = array(
+		'post_id' => $data['post_id'],
+		'entity_id' => $data['entity_id'],
+		'title' => $data['title'],
+		'thumbnail' => $data['thumbnail'],
+		'description' => $data['description'],
+		'is_movie' => intval($data['is_movie']),
+		'season' => intval($data['season'][0]),
+		'episode' => intval($data['episode'][0]),
+		'video_src' => $data['video_src'][0],
+		'release_date' => $data['release_date'][0],
+		'video_type' => $data['video_type'][0],
+		//'view_count' => $data['view_count'] // we shouldn't touch this when updating data at this point.
+		'quality' => $data['quality'][0]
+	);
+	$format = array('%d', '%d', '%s', '%s', '%s', '%d', '%d', '%d', '%s', '%s', '%s', '%s',);
+	$where_array = array('id' => $video_entry_id);	
+	$where_format = '%d';
+	
+	if ($does_video_exist) {
+		// We need to perfom an UPDATE
+		// We have the id of the custom videos table row with $video_entry_id.
+		# wpdb::update(  string $table,  array $data,  array $where,  array|string $format = null,  array|string $where_format = null )
+		$wpdb->update(
+			$prefix . "cpvm_videos",
+			$table_data,
+			$where_array,
+			$format,
+			$where_format
+		);
+		$cpvm_videos_id = $video_entry_id;
+	} else {
+		// We need to perform an INSERT
+		$wpdb->insert($prefix  .  'cpvm_videos', $table_data, $format);
+		$cpvm_videos_id = $wpdb->insert_id;
+	}
+	return  $cpvm_videos_id;
 }
 
 add_action('save_post', 'cpvm_save_video_meta_data', 10, 2);
